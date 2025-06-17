@@ -69,6 +69,5 @@ def consultar_frecuencia():
     except Exception as e:
         print(f"Ocurrió un error inesperado en el servidor: {e}")
         return jsonify({'error': 'Ocurrió un error inesperado en el servidor.'}), 500
-```
 
-Una vez que reemplaces el código y lo subas a GitHub, Render debería poder desplegarlo correctamente. ¡Vamos a intentarlo de nue
+# --- Fin del archivo ---
