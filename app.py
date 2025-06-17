@@ -1,7 +1,7 @@
 # app.py
 # Backend actualizado para hacer scraping a la página de Frecuencia de Entregas
 # de Estafeta, usando código postal de ORIGEN y DESTINO.
-# v4: Corregida la URL del POST según la observación del usuario.
+# v5: Código limpio para corregir SyntaxError.
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -26,9 +26,6 @@ def consultar_frecuencia():
     if not cp_origen or not cp_destino:
         return jsonify({'error': 'Por favor, proporciona un código postal de origen y uno de destino.'}), 400
 
-    # --- CORRECCIÓN CLAVE ---
-    # Usamos la URL que el usuario identificó como la correcta.
-    # El formulario ahora parece enviar y procesar los datos en la misma página.
     url_estafeta = 'https://www.estafeta.com/frecuencia-de-entregas'
     
     payload = {
@@ -74,4 +71,4 @@ def consultar_frecuencia():
         return jsonify({'error': 'Ocurrió un error inesperado en el servidor.'}), 500
 ```
 
-Una vez que subas este código corregido a GitHub, el despliegue en Render debería completarse sin problem
+Una vez que reemplaces el código y lo subas a GitHub, Render debería poder desplegarlo correctamente. ¡Vamos a intentarlo de nue
