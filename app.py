@@ -1,77 +1,77 @@
-# app.py
-# Backend actualizado para hacer scraping a la página de Frecuencia de Entregas
-# de Estafeta, usando código postal de ORIGEN y DESTINO.
-# v7: Forzando la URL correcta y añadiendo cabecera 'Origin'.
-
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+# app.py (versión final para producción)
+from flask import Flask, request, jsonify, render_template
 import requests
 from bs4 import BeautifulSoup
-import unicodedata
+import logging
+import gunicorn  # Aunque no lo llames directamente, es bueno tenerlo importado para verificar la instalación
 
-# --- Configuración inicial de la aplicación Flask ---
+# Configuración básica de logging para ver errores en la consola de Render
+logging.basicConfig(level=logging.INFO)
+
 app = Flask(__name__)
-CORS(app)
 
-# --- Definición del endpoint para la consulta ---
-@app.route('/consultar', methods=['GET'])
+# URL y headers para simular una petición de un navegador real
+ESTAFETA_URL = "https://www.estafeta.com/frecuencia-de-entregas"
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+}
+
+@app.route('/')
+def index():
+    """Sirve el archivo HTML principal."""
+    return render_template('index.html')
+
+@app.route('/consultar', methods=['POST'])
 def consultar_frecuencia():
-    """
-    Este endpoint recibe un CP de origen y uno de destino,
-    realiza el scraping en la página de Estafeta y devuelve los resultados.
-    """
-    cp_origen = request.args.get('origen')
-    cp_destino = request.args.get('destino')
+    """Endpoint que recibe el código postal, hace el scraping y devuelve el resultado."""
+    data = request.get_json()
+    if not data or 'codigo_postal' not in data:
+        return jsonify({'error': 'No se proporcionó el código postal.'}), 400
 
-    if not cp_origen or not cp_destino:
-        return jsonify({'error': 'Por favor, proporciona un código postal de origen y uno de destino.'}), 400
+    cp = data['codigo_postal']
+    logging.info(f"Recibida consulta para el CP: {cp}")
 
-    # Usando la URL que el usuario ha verificado como la correcta y activa.
-    url_estafeta = 'https://www.estafeta.com/frecuencia-de-entregas'
-    
-    payload = {
-        'cp_origen': cp_origen,
-        'cp_destino': cp_destino,
-        'Herramienta': 'Frecuencia',
-        'PaisOrigen': 'Mexico'
-    }
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': 'https://www.estafeta.com/frecuencia-de-entregas',
-        # --- AJUSTE ADICIONAL ---
-        # A veces los servidores requieren la cabecera 'Origin' para aceptar solicitudes POST.
-        'Origin': 'https://www.estafeta.com'
-    }
+    payload = {'codigoPostal': cp}
 
     try:
-        response = requests.post(url_estafeta, data=payload, headers=headers)
+        response = requests.post(ESTAFETA_URL, headers=HEADERS, data=payload, timeout=15)
         response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'lxml')
+        result_div = soup.find('div', class_='frecuencia-result')
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        resultados_div = soup.find('div', class_='resultados-frecuencia')
+        if not result_div:
+            logging.warning(f"No se encontraron resultados para el CP: {cp}")
+            return jsonify({'error': f'No se encontraron resultados para el CP {cp}. Verifique que sea correcto.'})
 
-        if resultados_div:
-            elementos = resultados_div.find_all(['p', 'h4'])
-            resultado_texto = [elem.get_text(strip=True) for elem in elementos if elem.get_text(strip=True)]
-            resultado_limpio = [unicodedata.normalize("NFKD", texto) for texto in resultado_texto]
-            return jsonify({'resultado': resultado_limpio})
-        else:
-            error_div = soup.find('div', class_='text-cp-no')
-            if error_div:
-                error_msg = error_div.get_text(strip=True)
-                return jsonify({'error': error_msg}), 404
-            else:
-                print("DEBUG: No se encontró 'resultados-frecuencia' ni 'text-cp-no'.")
-                print("DEBUG: Contenido de la página de Estafeta:")
-                print(response.text[:1000])
-                return jsonify({'error': 'No se pudo interpretar la respuesta de Estafeta. Intenta con otros códigos postales.'}), 500
+        p_tags = result_div.find_all('p')
+        resultado = {
+            'cp_consultado': cp,
+            'frecuencia': 'No disponible',
+            'dias_entrega': 'No disponible',
+            'recoleccion_domicilio': 'No disponible'
+        }
+
+        for i, p in enumerate(p_tags):
+            text = p.get_text(strip=True)
+            if "Frecuencia de entrega:" in text and i + 1 < len(p_tags):
+                resultado['frecuencia'] = p_tags[i + 1].get_text(strip=True)
+            elif "Días de entrega:" in text and i + 1 < len(p_tags):
+                resultado['dias_entrega'] = p_tags[i + 1].get_text(strip=True)
+            elif "Recolección a domicilio:" in text and i + 1 < len(p_tags):
+                resultado['recoleccion_domicilio'] = p_tags[i + 1].get_text(strip=True)
+        
+        logging.info(f"Resultado para {cp}: {resultado}")
+        return jsonify(resultado)
 
     except requests.exceptions.RequestException as e:
-        print(f"Error de Requests: {e}")
-        return jsonify({'error': 'No se pudo conectar con el servicio de Estafeta.'}), 503
+        logging.error(f"Error de conexión al consultar el CP {cp}: {e}")
+        return jsonify({'error': 'Error de conexión con el servidor de Estafeta.'}), 500
     except Exception as e:
-        print(f"Ocurrió un error inesperado en el servidor: {e}")
+        logging.error(f"Ocurrió un error inesperado: {e}")
         return jsonify({'error': 'Ocurrió un error inesperado en el servidor.'}), 500
 
-# --- Fin del archivo ---
+# El bloque if __name__ == '__main__' no es necesario para Render,
+# pero puedes dejarlo si quieres ejecutar 'python app.py' localmente para pruebas.
+# Gunicorn no lo usará.
+if __name__ == '__main__':
+    app.run(debug=True)
