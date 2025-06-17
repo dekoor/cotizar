@@ -74,11 +74,4 @@ def consultar_frecuencia():
         return jsonify({'error': 'Ocurrió un error inesperado en el servidor.'}), 500
 ```
 
-**Pasos a seguir:**
-
-1.  Reemplaza el código de tu archivo `app.py` por este.
-2.  Sube los cambios a tu repositorio de GitHub.
-3.  Espera a que Render actualice el servicio.
-4.  Prueba la página de nuevo.
-
-Con este cambio, el error 500 debería desaparecer y la consulta funcionar correctamente. ¡Excelente trabajo al detectar ese detal
+Una vez que subas este código corregido a GitHub, el despliegue en Render debería completarse sin problem
