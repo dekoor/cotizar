@@ -25,7 +25,6 @@ def health_check():
 SHIPPING_API_URL = "https://app.enviosperros.com/api/v2/shipping/rates"
 
 # Leemos la API Key desde las variables de entorno de Render.
-# IMPORTANTE: Debes reemplazar el valor en Render por tu nueva clave de Enviosperros.com
 API_KEY = os.environ.get('ENVIA_API_KEY') 
 
 # Endpoint para cotizar
@@ -42,7 +41,11 @@ def cotizar_envio():
     if not datos_envio:
         return jsonify({"error": "No se recibieron datos en la petición."}), 400
 
-    # Cabecera de autorización, es igual que en la API anterior
+    # --- LÍNEA AÑADIDA PARA DEPURACIÓN ---
+    # Imprimimos los datos recibidos en los logs de Render para verificarlos.
+    print(f"--- DATOS RECIBIDOS PARA COTIZAR ---: {datos_envio}")
+
+    # Cabecera de autorización
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
@@ -61,6 +64,10 @@ def cotizar_envio():
         except ValueError:
             details = err.response.text
         
+        # --- LÍNEA AÑADIDA PARA DEPURACIÓN ---
+        # Imprimimos el error detallado que devuelve la API externa.
+        print(f"--- ERROR DE LA API EXTERNA ---: {details}")
+
         error_details = {
             "error": "Ocurrió un error con la API del proveedor de envíos.",
             "statusCode": err.response.status_code,
