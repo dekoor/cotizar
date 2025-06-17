@@ -1,84 +1,75 @@
 # app.py
-# Importamos las librerías necesarias
-import os
+# Backend para hacer web scraping a la página de Frecuencia de Entregas de Estafeta.
+#
+# Este script está listo para ser desplegado en servicios como Render.
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
+from bs4 import BeautifulSoup
+import unicodedata
 
-# Inicializamos la aplicación de Flask
+# --- Configuración inicial de la aplicación Flask ---
 app = Flask(__name__)
-
-# Configuración de CORS para permitir peticiones desde cualquier origen
+# Habilitamos CORS para permitir que el frontend (HTML) se comunique con este backend
 CORS(app)
 
-# --- RUTA DE DIAGNÓSTICO ---
-@app.route('/')
-def health_check():
-    """Ruta de diagnóstico para verificar que el servidor está en línea."""
-    return jsonify({
-        "status": "ok", 
-        "message": "El backend del cotizador está funcionando correctamente. Versión para Enviosperros.com."
-    })
-
-# --- CONFIGURACIÓN DE LA API DE ENVÍOS ---
-# URL del endpoint de cotización de Enviosperros.com
-SHIPPING_API_URL = "https://app.enviosperros.com/api/v2/shipping/rates"
-
-# Leemos la API Key desde las variables de entorno de Render.
-API_KEY = os.environ.get('ENVIA_API_KEY') 
-
-# Endpoint para cotizar
-@app.route('/api/cotizar', methods=['POST'])
-def cotizar_envio():
+# --- Definición del endpoint para la consulta ---
+@app.route('/consultar', methods=['GET'])
+def consultar_cp():
     """
-    Este endpoint recibe los datos del envío desde el frontend,
-    contacta la API de Enviosperros.com y devuelve las cotizaciones.
+    Este endpoint recibe un código postal (cp) como parámetro en la URL,
+    realiza el scraping en la página de Estafeta y devuelve los resultados.
     """
-    if not API_KEY:
-        return jsonify({"error": "La API Key no está configurada en las variables de entorno del servidor."}), 500
+    # 1. Obtenemos el código postal de los parámetros de la solicitud.
+    codigo_postal = request.args.get('cp')
 
-    datos_envio = request.get_json()
-    if not datos_envio:
-        return jsonify({"error": "No se recibieron datos en la petición."}), 400
+    if not codigo_postal:
+        # Si no se proporciona un código postal, devolvemos un error.
+        return jsonify({'error': 'Por favor, proporciona un código postal.'}), 400
 
-    # --- LÍNEA AÑADIDA PARA DEPURACIÓN ---
-    # Imprimimos los datos recibidos en los logs de Render para verificarlos.
-    print(f"--- DATOS RECIBIDOS PARA COTIZAR ---: {datos_envio}")
-
-    # Cabecera de autorización
+    # 2. Definimos la URL de Estafeta y los datos que enviaremos (el formulario)
+    url_estafeta = 'https://www.estafeta.com/frecuencia-de-entregas'
+    payload = {
+        'cp': codigo_postal
+    }
+    
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
 
     try:
-        # Hacemos la petición POST a la API de Enviosperros.com
-        response = requests.post(SHIPPING_API_URL, headers=headers, json=datos_envio)
-        response.raise_for_status()
-        data = response.json()
-        return jsonify(data)
+        # 3. Hacemos la solicitud POST a la página de Estafeta
+        response = requests.post(url_estafeta, data=payload, headers=headers)
+        response.raise_for_status()  # Esto generará un error si la solicitud no fue exitosa (ej. error 404, 500)
 
-    except requests.exceptions.HTTPError as err:
-        try:
-            details = err.response.json()
-        except ValueError:
-            details = err.response.text
-        
-        # --- LÍNEA AÑADIDA PARA DEPURACIÓN ---
-        # Imprimimos el error detallado que devuelve la API externa.
-        print(f"--- ERROR DE LA API EXTERNA ---: {details}")
+        # 4. Procesamos la respuesta HTML con BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
 
-        error_details = {
-            "error": "Ocurrió un error con la API del proveedor de envíos.",
-            "statusCode": err.response.status_code,
-            "details": details
-        }
-        return jsonify(error_details), err.response.status_code
-        
+        # 5. Buscamos el contenedor de los resultados
+        resultados_div = soup.find('div', class_='resultados-frecuencia')
+
+        if resultados_div:
+            # Si se encuentra el div, extraemos el texto de todos los párrafos <p>
+            parrafos = resultados_div.find_all('p')
+            resultado_texto = [p.get_text(strip=True) for p in parrafos]
+            resultado_limpio = [unicodedata.normalize("NFKD", texto) for texto in resultado_texto]
+            return jsonify({'resultado': resultado_limpio})
+        else:
+            # Buscamos el mensaje de error que muestra la página.
+            error_div = soup.find('div', class_='text-cp-no')
+            if error_div:
+                error_msg = error_div.get_text(strip=True)
+                return jsonify({'error': error_msg}), 404
+            else:
+                return jsonify({'error': f'No se encontró información para el código postal {codigo_postal}.'}), 404
+
     except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Error de conexión con el servicio externo: {e}"}), 503
+        print(f"Error de conexión: {e}")
+        return jsonify({'error': 'No se pudo conectar con el servicio de Estafeta. Intenta de nuevo más tarde.'}), 500
+    except Exception as e:
+        print(f"Ocurrió un error inesperado: {e}")
+        return jsonify({'error': 'Ocurrió un error inesperado al procesar la solicitud.'}), 500
 
-# Esto permite ejecutar la aplicación directamente con "python app.py" para pruebas locales.
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+# El bloque if __name__ == '__main__': se elimina porque el servidor de producción (Gunicorn)
+# importará directamente la variable 'app' de este archivo.
