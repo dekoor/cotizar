@@ -1,7 +1,7 @@
 # app.py
 # Backend actualizado para hacer scraping a la página de Frecuencia de Entregas
 # de Estafeta, usando código postal de ORIGEN y DESTINO.
-# v5: Código limpio para corregir SyntaxError.
+# v7: Forzando la URL correcta y añadiendo cabecera 'Origin'.
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -26,6 +26,7 @@ def consultar_frecuencia():
     if not cp_origen or not cp_destino:
         return jsonify({'error': 'Por favor, proporciona un código postal de origen y uno de destino.'}), 400
 
+    # Usando la URL que el usuario ha verificado como la correcta y activa.
     url_estafeta = 'https://www.estafeta.com/frecuencia-de-entregas'
     
     payload = {
@@ -37,7 +38,10 @@ def consultar_frecuencia():
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': 'https://www.estafeta.com/frecuencia-de-entregas'
+        'Referer': 'https://www.estafeta.com/frecuencia-de-entregas',
+        # --- AJUSTE ADICIONAL ---
+        # A veces los servidores requieren la cabecera 'Origin' para aceptar solicitudes POST.
+        'Origin': 'https://www.estafeta.com'
     }
 
     try:
