@@ -9,11 +9,16 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# --- Configuración de CORS ---
-# Obtenemos la URL del frontend desde una variable de entorno.
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:5500")
+# --- CONFIGURACIÓN DE CORS (SIMPLIFICADA PARA DEPURACIÓN) ---
+# Para depurar el problema de arranque, vamos a permitir todos los orígenes
+# temporalmente. Si esto funciona, el problema está en cómo se lee o usa la
+# variable de entorno FRONTEND_URL.
+CORS(app)
 
-CORS(app, resources={r"/api/*": {"origins": FRONTEND_URL}})
+# La configuración anterior era:
+# FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:5500")
+# CORS(app, resources={r"/api/*": {"origins": FRONTEND_URL}})
+
 
 # --- Clave de API de Skydropx y URL ---
 # Carga la clave desde las variables de entorno.
@@ -70,7 +75,6 @@ def get_quote():
         return jsonify(response.json())
 
     except requests.exceptions.HTTPError as err:
-        # ---- NUEVO BLOQUE DE MANEJO DE ERRORES ----
         # Este bloque se ejecuta si Skydropx devuelve un error (ej. 401, 422).
         print(f"ERROR HTTP desde Skydropx: {err}")
         error_details = {}
@@ -104,17 +108,10 @@ if __name__ == '__main__':
     app.run(debug=True, port=5000)
 ```
 
-### **Plan de Acción Sugerido**
+### **Tus Próximos Pasos**
 
-1.  **Revisa tus Variables de Entorno en Render:**
-    * Ve a tu dashboard de Render -> `cotizar-8cgw` -> "Environment".
-    * **Verifica que `SKYDROPX_API_KEY` tenga el valor correcto**. Un error al copiar y pegar es muy común. Asegúrate de que no tenga espacios al principio o al final.
-    * Verifica que `FRONTEND_URL` siga siendo `https://dekoormx.com`.
+1.  **Actualiza `app.py` en GitHub:** Reemplaza el contenido de tu archivo `app.py` con esta nueva versión.
+2.  **Espera a que Render se Despliegue:** Render debería detectar el cambio y empezar un nuevo despliegue. Monitorea la pestaña "Events" en Render para ver si el servicio arranca correctamente esta vez.
+3.  **Prueba el Cotizador:** Si el despliegue es exitoso (muestra "Live"), intenta hacer una cotización desde tu página en Hostinger.
 
-2.  **Actualiza tu Código en GitHub:**
-    * Reemplaza el contenido de tu archivo `app.py` en tu repositorio de GitHub con la nueva versión que te acabo de dar.
-
-3.  **Espera el Despliegue Automático:**
-    * Render debería detectar automáticamente el cambio en GitHub y empezar a desplegar la nueva versión. Puedes verificar el progreso en la pestaña "Events" de tu servicio en Render.
-
-Una vez que la nueva versión esté desplegada, intenta hacer una cotización de nuevo. Si el problema era la clave de API, ahora deberías ver un mensaje de error claro en el cotizador en lugar de que la aplicación se bloqu
+Si con este cambio la aplicación arranca, significa que hemos aislado el problema y el siguiente paso será restaurar la configuración segura de CORS. Si sigue sin arrancar, el problema es aún más profundo, pero habremos descartado una variable importan
