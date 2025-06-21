@@ -11,14 +11,14 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": os.getenv("FRONTEND_URL")}})
 
-# --- NUEVAS VARIABLES PARA AUTENTICACIÓN BEARER ---
+# --- VARIABLES DE AUTENTICACIÓN (URL CORREGIDA) ---
 SKYDROPX_CLIENT_ID = os.getenv("SKYDROPX_CLIENT_ID")
 SKYDROPX_CLIENT_SECRET = os.getenv("SKYDROPX_CLIENT_SECRET")
-TOKEN_URL = "https://api.skydropx.com/oauth/token"
+# SE CORRIGIÓ ESTA LÍNEA AÑADIENDO "/v1"
+TOKEN_URL = "https://api.skydropx.com/v1/oauth/token"
 QUOTATIONS_URL = "https://api.skydropx.com/v1/quotations"
 
 # --- CACHÉ SIMPLE EN MEMORIA PARA EL TOKEN ---
-# Guardaremos el token aquí para no tener que pedir uno nuevo en cada solicitud.
 cached_token = {
     "access_token": None,
     "expires_at": 0
