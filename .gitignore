@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Variables de entorno
+.env
+*.env.*
+
+# Otros
+.DS_Store
