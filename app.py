@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -8,41 +9,84 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app, resources={r"/api/*": {"origins": os.getenv("FRONTEND_URL")}})
 
-# --- Configuración de CORS ---
-# Obtenemos la URL del frontend desde una variable de entorno.
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:5500")
+# --- NUEVAS VARIABLES PARA AUTENTICACIÓN BEARER ---
+SKYDROPX_CLIENT_ID = os.getenv("SKYDROPX_CLIENT_ID")
+SKYDROPX_CLIENT_SECRET = os.getenv("SKYDROPX_CLIENT_SECRET")
+TOKEN_URL = "https://api.skydropx.com/oauth/token"
+QUOTATIONS_URL = "https://api.skydropx.com/v1/quotations"
 
-CORS(app, resources={r"/api/*": {"origins": FRONTEND_URL}})
+# --- CACHÉ SIMPLE EN MEMORIA PARA EL TOKEN ---
+# Guardaremos el token aquí para no tener que pedir uno nuevo en cada solicitud.
+cached_token = {
+    "access_token": None,
+    "expires_at": 0
+}
 
-# --- Clave de API de Skydropx y URL ---
-# Carga la clave desde las variables de entorno.
-SKYDROPX_API_KEY = os.getenv("SKYDROPX_API_KEY")
-SKYDROPX_API_URL = "https://api.skydropx.com/v1/quotations"
+def get_valid_token():
+    """
+    Obtiene un token válido, ya sea del caché o uno nuevo si el anterior expiró.
+    """
+    global cached_token
+    # Revisa si el token en caché todavía es válido (con un margen de 60 segundos)
+    if cached_token["access_token"] and cached_token["expires_at"] > time.time() + 60:
+        print("Usando token de caché.")
+        return cached_token["access_token"]
+
+    print("Solicitando un nuevo token de acceso a Skydropx...")
+    
+    # Valida que las credenciales estén configuradas en el servidor
+    if not SKYDROPX_CLIENT_ID or not SKYDROPX_CLIENT_SECRET:
+        print("ERROR: Faltan las variables SKYDROPX_CLIENT_ID o SKYDROPX_CLIENT_SECRET.")
+        return None
+
+    # Cuerpo de la solicitud para obtener el token
+    token_payload = {
+        'grant_type': 'client_credentials',
+        'client_id': SKYDROPX_CLIENT_ID,
+        'client_secret': SKYDROPX_CLIENT_SECRET
+    }
+    headers = {'Content-Type': 'application/json'}
+
+    try:
+        response = requests.post(TOKEN_URL, json=token_payload, headers=headers)
+        response.raise_for_status()
+        token_data = response.json()
+        
+        # Guarda el nuevo token y calcula su tiempo de expiración
+        cached_token["access_token"] = token_data["access_token"]
+        cached_token["expires_at"] = time.time() + token_data["expires_in"]
+        print("Nuevo token obtenido y guardado en caché.")
+        return cached_token["access_token"]
+
+    except requests.exceptions.HTTPError as err:
+        print(f"ERROR al obtener el token: {err}")
+        print(f"Respuesta de la API de tokens: {response.text}")
+        return None
 
 # --- Ruta Principal ---
 @app.route('/')
 def api_status():
-    """Confirma que la API está en línea."""
     return jsonify({"status": "ok", "message": "Backend del Cotizador de Envíos está funcionando."})
 
 # --- Ruta para Cotizar ---
 @app.route('/api/quote', methods=['POST'])
 def get_quote():
-    """
-    Maneja la solicitud de cotización, con manejo de errores mejorado.
-    """
-    # 1. Validar que la API Key esté configurada en el servidor
-    if not SKYDROPX_API_KEY:
-        print("ERROR: La variable de entorno SKYDROPX_API_KEY no está definida.")
-        return jsonify({"error": "Error de configuración del servidor: Falta la clave de API."}), 500
+    # 1. Obtiene un token válido
+    access_token = get_valid_token()
+    if not access_token:
+        return jsonify({"error": "No se pudo autenticar con Skydropx. Revisa las credenciales del servidor."}), 500
 
-    # 2. Obtener los datos del cuerpo de la solicitud
+    # 2. Configura los headers con el Bearer Token
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
+    # 3. Construye el payload con los datos del envío
     data = request.json
-    print(f"Datos recibidos para cotizar: {data}")
-
-    # 3. Construir el cuerpo (payload) para la API de Skydropx
-    payload = {
+    shipment_payload = {
         "zip_from": data.get("zip_from"),
         "zip_to": data.get("zip_to"),
         "parcel": {
@@ -53,51 +97,20 @@ def get_quote():
         }
     }
 
-    # 4. Configurar las cabeceras (headers) con la autenticación
-    headers = {
-        "Authorization": f"Token token={SKYDROPX_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
     try:
-        # 5. Realizar la petición POST a la API de Skydropx
-        response = requests.post(SKYDROPX_API_URL, json=payload, headers=headers)
-        
-        # Levantar un error si la respuesta no fue exitosa (código 4xx o 5xx)
+        # 4. Realiza la solicitud de cotización
+        response = requests.post(QUOTATIONS_URL, json=shipment_payload, headers=headers)
         response.raise_for_status()
-        
-        # 6. Devolver la respuesta exitosa de Skydropx al frontend
         return jsonify(response.json())
 
     except requests.exceptions.HTTPError as err:
-        # Este bloque se ejecuta si Skydropx devuelve un error (ej. 401, 422).
-        print(f"ERROR HTTP desde Skydropx: {err}")
-        error_details = {}
-        try:
-            # Intenta interpretar la respuesta de error como JSON
-            error_details = response.json()
-            print(f"Respuesta de error de la API (JSON): {error_details}")
-        except ValueError:
-            # Si la respuesta no es JSON, la envía como texto plano
-            error_details = {"raw_response": response.text}
-            print(f"Respuesta de error de la API (no-JSON): {response.text}")
-        
-        # Devuelve un error JSON estructurado al frontend en lugar de bloquearse
-        return jsonify({
-            "error": "La API de Skydropx devolvió un error.",
-            "details": error_details
-        }), response.status_code
-
-    except requests.exceptions.RequestException as err:
-        # Este bloque se ejecuta si hay un error de red
-        print(f"ERROR de Red: {err}")
-        return jsonify({"error": "Error de red al intentar contactar a Skydropx."}), 503
+        print(f"ERROR HTTP en cotización: {err}")
+        error_details = response.json() if response.text else {}
+        return jsonify({"error": "La API de Skydropx devolvió un error en la cotización.", "details": error_details}), response.status_code
     
     except Exception as err:
-        # Bloque genérico para cualquier otro error inesperado en el código
-        print(f"ERROR INESPERADO en el servidor: {err}")
-        return jsonify({"error": "Ocurrió un error inesperado en el servidor."}), 500
-
+        print(f"ERROR INESPERADO en cotización: {err}")
+        return jsonify({"error": "Ocurrió un error inesperado en el servidor al cotizar."}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
